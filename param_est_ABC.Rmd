@@ -1,0 +1,385 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+0. Model definition
+```{r}
+# Using Latin Hypercube Sampling for Approximate bayesian computation
+# Step 1: Create a nl object:
+
+library(nlrx)
+library(ggplot2)
+library(dplyr)
+library(docstring)
+
+# Define paths
+netlogopath <- "/home/jmtubay/Documents/NetLogo 6.2.2"
+modelpath <- file.path(
+  netlogopath, "app", "models", "Code Examples",
+  "Extensions Examples", "gis", "swine_model_asf_v6_anon_WB_ONLY.nlogo"
+)
+modelname <- basename(modelpath)
+outpath <- "out/"
+
+# Check if paths exist
+check_paths <- function(netlogopath, modelpath, outpath) {
+  #' @title Check paths
+  #' @description This function check the paths of the netlogo installation,
+  #' the netlogo model file, and the output folder
+  #' @param netlogopath Path of the NetLogo installation
+  #' @param modelpath Path of the NetLogo model file
+  #' @param outpath Path of the output directory for nlrx
+  #' @return Prompts whether the paths are found or not.
+
+  if (dir.exists(netlogopath)) {
+    message(paste("NetLogo path found:", netlogopath))
+  } else {
+    stop(paste("NetLogo path not found:", netlogopath))
+  }
+
+  # Check if model file exists
+  if (file.exists(modelpath)) {
+    message(paste("Model file found:", modelpath))
+  } else {
+    stop(paste("Model file not found:", modelpath))
+  }
+
+  # Check if output directory exists, create if it doesn't
+  if (dir.exists(outpath)) {
+    message(paste("Output directory exists:", outpath))
+  } else {
+    warning(paste("Output directory does not exist. Creating:", outpath))
+    dir.create(outpath, recursive = TRUE)
+  }
+}
+
+check_paths(netlogopath, modelpath, outpath)
+
+# Define Java options to suppress warnings
+options(java.parameters = "-Djava.util.logging.ConsoleHandler.level=SEVERE")
+
+# Initialize nlrx object
+nl <- nl(
+  nlversion = "6.2.2",
+  nlpath = netlogopath,
+  modelpath = modelpath,
+  jvmmem = 1024
+)
+
+# Print nlrx object to verify
+print(nl)
+
+# Step 2: Attach an experiment
+# We want to run a Latin Hypercube sampling, thus we need to define proper
+# variable ranges. We also need to define our output metrics. These metrics are
+# also used for the rejection sampling later on.
+
+nl@experiment <- experiment(expname="asf-model-nl",
+                            outpath=outpath,
+                            repetition=1,
+                            tickmetrics="false",
+                            idsetup="setup-all-in",
+                            idgo="go",
+                            runtime=53,
+                            metrics=c("avg-distance-traveled-by-infection"),
+                            variables = list(#"num-patches-to-infect" = list(min=0, max=20, step=1, qfun="qunif"),
+                                             #"alpha-farm-farm" = list(min=0, max=20, step=1, qfun="qunif"),
+                                             #"alpha-farm-patch" = list(min=0, max=20, step=1, qfun="qunif"),
+                                             #"alpha-patch-farm" = list(min=0, max=20, step=1, qfun="qunif"),
+                                             "alpha-patch-patch" = list(min=0, max=3, step=0.1, qfun="qunif"),
+                                             #"beta-farm-farm" = list(min=0, max=20, step=1, qfun="qunif"),
+                                             #"beta-farm-patch" = list(min=0, max=20, step=1, qfun="qunif"),
+                                             #"beta-patch-farm" = list(min=0, max=20, step=1, qfun="qunif"),
+                                             "beta-patch-patch" = list(min=0, max=3, step=0.1, qfun="qunif")),
+                            constants = list("num-patches-to-infect" = 1,
+                                             "termination-t" = 53,
+                                             "cull?" = "false",
+                                             "cull-infected-farm?" = "false",
+                                             "stop-at-t?" = "true",
+                                             "infect-random-wildboar-area-per-time-step?" = "false",
+                                             "cull-n-random-wildboar-area?" = "false",
+                                             "restrict-farm-connection?" = "false",
+                                             "stop-when-I-plateaus?" = "false"
+                            ),
+)
+
+# Step 3: Attach a simulation design
+# While the experiment defines the variables and specifications of the model,
+# the simulation design creates a parameter input table based on these model
+# specifications and the chosen simulation design method. nlrx provides a bunch
+# of different simulation designs, such as full-factorial, latin-hypercube,
+# sobol, morris and eFast (see “Simdesign Examples” vignette for more
+# information on simdesigns). All simdesign helper functions need a properly
+# defined nl object with a valid experiment design. Each simdesign helper also
+# allows to define a number of random seeds that are randomly generated and can
+# be used to execute repeated simulations of the same parameter matrix with
+# different random-seeds (see “Advanced configuration” vignette for more
+# information on random-seed and repetition management). A simulation design is
+# attached to a nl object by using one of the simdesign helper functions:
+
+samples <- 500
+nseeds <- 10
+precision <- 3
+nl@simdesign <- simdesign_lhs(
+  nl = nl,
+  samples = samples,
+  nseeds = nseeds,
+  precision = precision
+)
+```
+
+
+1. Load the Results RDS File:
+First, read the saved .rds file into your R session to retrieve the nl object and its associated simulation outputs.
+```{r}
+library(nlrx)
+library(ggplot2)
+library(dplyr)
+library(docstring)
+
+# Define the path to the saved RDS file
+out <- "/home/jmtubay/Documents/ASF_Model/out/"
+rds_path <- file.path(out, "ABClhs_swine_model_asf_v6_anon_WB_ONLY.nlogo_samples10000_seeds1_2025-02-23_05-43-59.rds")
+# Extract the file name
+rds_file_name <- basename(rds_path)
+
+# Check if the RDS file exists
+if (file.exists(rds_path)) {
+  # Reload the saved nl object
+  nl <- readRDS(rds_path)
+  
+  # Extract the results
+  results <- getsim(nl, "simoutput")
+  
+  # Extract input
+  input <- getsim(nl, "siminput")
+  
+} else {
+  stop("The RDS file does not exist. You may need to rerun the simulations.")
+}
+
+print(nl)
+print(input)
+print(results)
+```
+
+2. Prepare Data for ABC:
+Use the loaded nl object to extract input and output data, which will be used as parameters and summary statistics for the ABC methods.
+
+```{r}
+library(dplyr)
+
+# Attach output results to nl objects
+setsim(nl, "simoutput") <- results
+
+# Extract input parameters
+input <- getsim(nl, "siminput") %>%
+  dplyr::select(names(getexp(nl, "variables")))
+
+print(input)
+
+# Extract output metrics
+output <- getsim(nl, "simoutput") %>%
+  dplyr::select(getexp(nl, "metrics"))
+
+print(output)
+
+nseeds = 1
+
+# Check if 'simulation_id' column exists, if not, create it
+if (!"simulation_id" %in% colnames(output)) {
+  # Compute the correct number of simulation ids based on the total number of rows in 'output'
+  total_rows <- nrow(output)
+  
+  # Create a simulation_id that corresponds to the total number of rows
+  output <- output %>%
+    mutate(simulation_id = rep(1:ceiling(total_rows / nseeds), each = nseeds, length.out = total_rows))
+}
+
+ModeNonZero <- function(x, na.rm = FALSE) {
+  if (na.rm) {
+    x <- na.omit(x)
+  }
+  x <- x[x != 0]  # Exclude zero elements
+  if (length(x) == 0) {
+    return(0)  # Return zero if there are no nonzero elements
+  }
+  ux <- unique(x)
+  mode_value <- ux[which.max(tabulate(match(x, ux)))]
+  if (is.na(mode_value)) {
+    return(0)  # Replace NA with zero if mode is NA
+  }
+  return(mode_value)
+}
+
+MeanNonZero <- function(x, na.rm = FALSE) {
+  if (na.rm) {
+    x <- na.omit(x)
+  }
+  x <- x[x != 0]  # Exclude zero elements
+  if (length(x) == 0) {
+    return(0)  # Return zero if there are no nonzero elements
+  }
+  return(mean(x))  # Calculate mean of nonzero elements
+}
+
+# Summarize the output
+output_summary <- output %>%
+  group_by(simulation_id) %>%
+  summarize(avg_metric = mean(`avg-distance-traveled-by-infection`, na.rm = TRUE)) %>%
+  ungroup()
+
+# Check the result
+print(output_summary)
+
+# Define target summary statistics
+target <- c("avg_distance" = 30.66)
+# https://doi-org.utrechtuniversity.idm.oclc.org/10.1038/s41598-023-42300-0 (0.042 km/day)
+```
+
+3. Perform ABC Rejection and Loclinear Methods:
+Use the abc package to perform both the rejection and loclinear ABC methods with the prepared data.
+
+```{r}
+avg_metric <- output_summary %>% select(avg_metric)
+
+# Perform ABC using rejection method
+results.abc.reject <- abc::abc(
+  target = target,
+  param = input,
+  sumstat = avg_metric,
+  tol = 0.01,
+  method = "rejection"
+)
+
+
+# Perform ABC using loclinear method
+results.abc.loclin <- abc::abc(
+    target = target,
+    param = input,
+    sumstat = output_summary$avg_metric,
+    tol = 0.01,
+    method = "loclinear"
+  )
+
+# Perform ABC using neural networks
+results.abc.neuralnet <- abc::abc(
+  target = target,
+  param = input,
+  sumstat = output_summary$avg_metric,
+  tol = 0.01,
+  method = "neuralnet"
+)
+
+print(results.abc.reject)
+print(results.abc.loclin)
+print(results.abc.neuralnet)
+# If you need to plot, you can now check the content of results.abc.loclin
+```
+
+```{r}
+# Assuming 'input' is a data frame or matrix used in the abc::abc() call
+total_simulations <- nrow(input)  # or length(output_summary$avg_metric)
+
+# Print the total number of simulations
+print(total_simulations)
+```
+
+Theme
+```{r}
+library(remotes)
+
+remotes::install_git("https://gitlab.envt.fr/epidesa/biosecureR.git", host = "gitlab.envt.fr")
+```
+
+
+4. Compare and Visualize Results:
+Format the results for visualization and use ggplot2 to create plots comparing the parameter distributions from the ABC methods and the initial distribution from Latin Hypercube Sampling (LHS).
+
+```{r}
+# Create an empty list to store available results
+results_list <- list()
+
+# Check each method and add it to the results list if it's not NULL
+if (!is.null(results.abc.reject$unadj.values)) {
+  results_list$rejection <- tibble::as_tibble(results.abc.reject$unadj.values) %>%
+    tidyr::gather(parameter, value) %>%
+    dplyr::mutate(method = "rejection")
+}
+
+if (!is.null(results.abc.loclin$adj.values)) {
+  results_list$loclinear <- tibble::as_tibble(results.abc.loclin$adj.values) %>%
+    tidyr::gather(parameter, value) %>%
+    dplyr::mutate(method = "loclinear")
+}
+
+if (!is.null(results.abc.neuralnet$adj.values)) {
+  results_list$neuralnet <- tibble::as_tibble(results.abc.neuralnet$adj.values) %>%
+    tidyr::gather(parameter, value) %>%
+    dplyr::mutate(method = "neuralnet")
+}
+
+# Always include the initial parameter distribution
+#results_list$lhs <- input %>%
+#  tidyr::gather(parameter, value) %>%
+#  dplyr::mutate(method = "lhs (init dist)")
+
+# Combine all available results into a single tibble
+results.abc.all <- dplyr::bind_rows(results_list)
+
+# Calculate the mean for each parameter-method combination
+means <- results.abc.all %>%
+  dplyr::group_by(parameter, method) %>%
+  dplyr::summarise(mean_value = mean(value, na.rm = TRUE), .groups = "drop")
+
+# Calculate the mode (peak) using density estimation
+find_peak <- function(values) {
+  d <- density(values, na.rm = TRUE)
+  peak_x <- d$x[which.max(d$y)]
+  return(peak_x)
+}
+
+peaks <- results.abc.all %>%
+  dplyr::group_by(parameter, method) %>%
+  dplyr::summarise(peak_value = find_peak(value), .groups = "drop")
+
+# Print means and peaks
+print("Mean and peak values for each parameter-method combination:")
+results_summary <- dplyr::left_join(means, peaks, by = c("parameter", "method"))
+print(results_summary)
+
+# Plotting
+plot_density <- ggplot2::ggplot(results.abc.all) +
+  ggplot2::facet_wrap(~parameter, scales = "free") +
+  ggplot2::geom_density(ggplot2::aes(x = value, fill = method), alpha = 0.1, size = 1) +
+  ggplot2::geom_vline(
+    data = means,
+    ggplot2::aes(xintercept = mean_value, color = method),
+    linetype = "dashed", size = 1.2
+  ) +
+  ggplot2::geom_vline(
+    data = peaks,
+    ggplot2::aes(xintercept = peak_value, color = method),
+    linetype = "solid", size = 1.2
+  ) +
+  ggplot2::xlim(-1, 4) + # Adjust x-axis range as needed
+  ggplot2::labs(title = "", x = "Value", y = "Density", fill = "Legend Title", color = "Legend Title") +
+  ggplot2::guides(fill = ggplot2::guide_legend(title = "ABC Methods"), color = ggplot2::guide_legend(title = "ABC Methods")) +
+  biosecureR::scale_fill_biosecure() + # Apply Biosecure fill scale
+  biosecureR::scale_color_biosecure() + # Apply Biosecure color scale
+  biosecureR::theme_biosecure() + # Apply Biosecure theme
+  ggplot2::theme(
+    #legend.position = "bottom",  # Place legend at bottom for better visibility
+    panel.border = ggplot2::element_rect(color = "black", fill = NA, linewidth = 1),
+    panel.grid.major = ggplot2::element_blank(),
+    panel.grid.minor = ggplot2::element_blank()
+  )
+
+
+# Save the plot
+ggsave("param_est.png", width = 10, height = 6, dpi = 300)
+
+# Show the plot
+print(plot_density)
+```
